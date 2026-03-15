@@ -47,11 +47,9 @@ class TetrisApplication:
                     elif event.key == pygame.K_RIGHT:
                         self.game.move_piece_right()
                     elif event.key == pygame.K_DOWN:
-                        self.game.move_piece_down()
-                    elif event.key == pygame.K_SPACE:
-                        self.game.rotate_piece()
-                    elif event.key == pygame.K_UP:
                         self.game.hard_drop()
+                    elif event.key == pygame.K_UP:
+                        self.game.rotate_piece()
     
     def update(self, dt):
         """Update game state"""
