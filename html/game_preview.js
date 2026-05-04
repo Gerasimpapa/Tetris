@@ -1,6 +1,5 @@
-// Tetris Game in JavaScript
+// Tetris Game with configurable next-piece previews
 
-// Constants
 const PLAYING = 'playing';
 const PAUSED = 'paused';
 const GAME_OVER = 'gameOver';
@@ -8,6 +7,10 @@ const GAME_OVER = 'gameOver';
 const GRID_WIDTH = 10;
 const GRID_HEIGHT = 20;
 const CELL_SIZE = 30;
+const MAX_PREVIEW_PIECES = 10;
+const PREVIEW_CANVAS_WIDTH = 100;
+const PREVIEW_CANVAS_HEIGHT = 60;
+const PREVIEW_CELL_SIZE = 18;
 
 const COLORS = {
     'I': '#00f0f0',
@@ -19,40 +22,39 @@ const COLORS = {
     'L': '#ff7000',
 };
 
-// Piece Rotations
 const ROTATIONS = {
     'I': [
-        [[0, 1], [1, 1], [2, 1], [3, 1]],      // Horizontal
-        [[1, 0], [1, 1], [1, 2], [1, 3]],       // Vertical
+        [[0, 1], [1, 1], [2, 1], [3, 1]],
+        [[1, 0], [1, 1], [1, 2], [1, 3]],
     ],
     'O': [
-        [[0, 0], [0, 1], [1, 0], [1, 1]],       // No rotation needed
+        [[0, 0], [0, 1], [1, 0], [1, 1]],
     ],
     'T': [
-        [[0, 1], [1, 0], [1, 1], [2, 1]],       // Up (normal)
-        [[1, 0], [1, 1], [2, 1], [1, 2]],       // Right
-        [[0, 0], [1, 0], [2, 0], [1, 1]],       // Down
-        [[1, 0], [0, 1], [1, 1], [1, 2]],       // Left
+        [[0, 1], [1, 0], [1, 1], [2, 1]],
+        [[1, 0], [1, 1], [2, 1], [1, 2]],
+        [[0, 0], [1, 0], [2, 0], [1, 1]],
+        [[1, 0], [0, 1], [1, 1], [1, 2]],
     ],
     'S': [
-        [[0, 1], [1, 0], [1, 1], [2, 0]],       // Horizontal
-        [[0, 0], [0, 1], [1, 1], [1, 2]],       // Vertical
+        [[0, 1], [1, 0], [1, 1], [2, 0]],
+        [[0, 0], [0, 1], [1, 1], [1, 2]],
     ],
     'Z': [
-        [[0, 0], [1, 0], [1, 1], [2, 1]],       // Horizontal
-        [[1, 0], [0, 1], [1, 1], [0, 2]],       // Vertical
+        [[0, 0], [1, 0], [1, 1], [2, 1]],
+        [[1, 0], [0, 1], [1, 1], [0, 2]],
     ],
     'J': [
-        [[0, 0], [0, 1], [1, 1], [2, 1]],       // Up
-        [[0, 0], [1, 0], [0, 1], [0, 2]],       // Right
-        [[0, 0], [1, 0], [2, 0], [2, 1]],       // Down
-        [[1, 0], [1, 1], [1, 2], [0, 2]],       // Left
+        [[0, 0], [0, 1], [1, 1], [2, 1]],
+        [[0, 0], [1, 0], [0, 1], [0, 2]],
+        [[0, 0], [1, 0], [2, 0], [2, 1]],
+        [[1, 0], [1, 1], [1, 2], [0, 2]],
     ],
     'L': [
-        [[0, 0], [0, 1], [0, 2], [1, 2]],       // Up
-        [[0, 0], [1, 0], [2, 0], [0, 1]],       // Right
-        [[0, 0], [1, 0], [1, 1], [1, 2]],       // Down
-        [[2, 0], [0, 1], [1, 1], [2, 1]],       // Left
+        [[0, 0], [0, 1], [0, 2], [1, 2]],
+        [[0, 0], [1, 0], [2, 0], [0, 1]],
+        [[0, 0], [1, 0], [1, 1], [1, 2]],
+        [[2, 0], [0, 1], [1, 1], [2, 1]],
     ],
 };
 
@@ -110,23 +112,29 @@ class TetrisGame {
     constructor() {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
-        this.nextCanvas = document.getElementById('nextPieceCanvas');
-        this.nextCtx = this.nextCanvas.getContext('2d');
-        
+        this.previewCountSelect = document.getElementById('previewCountSelect');
+        this.nextQueueContainer = document.getElementById('nextQueueContainer');
+
+        this.previewCount = Number(this.previewCountSelect.value);
         this.grid = Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill(null));
-        this.currentPiece = new Piece();
-        this.nextPiece = new Piece();
+        this.nextQueue = [];
+        this.currentPiece = null;
         this.state = PLAYING;
         this.score = 0;
         this.lines = 0;
         this.level = 1;
-        this.dropSpeed = 1000; // milliseconds
+        this.dropSpeed = 1000;
         this.lastDropTime = Date.now();
         this.nextTouchHardDropTime = 0;
         this.gameRunning = false;
-        
+
+        this.refillQueue();
+        this.currentPiece = this.takeNextPiece();
+
         this.setupEventListeners();
-        this.drawNextPiece();
+        this.updateDisplay();
+        this.drawNextQueue();
+        this.render();
     }
 
     setupEventListeners() {
@@ -134,17 +142,37 @@ class TetrisGame {
         document.getElementById('startBtn').addEventListener('click', () => this.start());
         document.getElementById('pauseBtn').addEventListener('click', () => this.togglePause());
         document.getElementById('resetBtn').addEventListener('click', () => this.reset());
-        
-        // Mobile touch controls
         document.getElementById('leftBtn').addEventListener('click', () => this.movePieceLeft());
         document.getElementById('rightBtn').addEventListener('click', () => this.movePieceRight());
         document.getElementById('rotateBtn').addEventListener('click', () => this.rotatePiece());
         document.getElementById('dropBtn').addEventListener('click', () => this.hardDrop());
-        
-        // Touch support for mobile
+        this.previewCountSelect.addEventListener('change', () => this.updatePreviewCount());
+
         this.canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e), false);
         this.canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
         this.canvas.addEventListener('touchend', (e) => this.handleTouchEnd(e), false);
+    }
+
+    updatePreviewCount() {
+        this.previewCount = Number(this.previewCountSelect.value);
+        this.drawNextQueue();
+    }
+
+    createRandomPiece() {
+        return new Piece();
+    }
+
+    refillQueue() {
+        while (this.nextQueue.length < MAX_PREVIEW_PIECES) {
+            this.nextQueue.push(this.createRandomPiece());
+        }
+    }
+
+    takeNextPiece() {
+        this.refillQueue();
+        const piece = this.nextQueue.shift();
+        this.refillQueue();
+        return piece;
     }
 
     handleTouchStart(e) {
@@ -155,60 +183,48 @@ class TetrisGame {
     }
 
     handleTouchMove(e) {
-        e.preventDefault(); // Disable scroll
-        
+        e.preventDefault();
+
         if (!this.touchStartX || !this.touchStartY || !this.gameRunning) return;
-        
+
         this.hasMoved = true;
         const touchEndX = e.touches[0].clientX;
         const touchEndY = e.touches[0].clientY;
-        
+
         const diffX = this.touchStartX - touchEndX;
         const diffY = this.touchStartY - touchEndY;
-        
-        // Swipe detection threshold
         const threshold = 30;
         const thresholdY = 100;
-        
+
         if (Math.abs(diffX) > Math.abs(diffY)) {
-            // Horizontal swipe
             if (diffX > threshold) {
-                // Swipe left
                 this.movePieceLeft();
                 this.touchStartX = touchEndX;
             } else if (diffX < -threshold) {
-                // Swipe right
                 this.movePieceRight();
                 this.touchStartX = touchEndX;
             }
-        } else {
-            // Vertical swipe
-            if (diffY < -thresholdY) {
-                // Swipe down - hard drop (negative diffY)
-                e.preventDefault();
-                if (this.canTriggerTouchHardDrop()) {
-                    this.hardDrop();
-                    this.applyTouchHardDropCooldown();
-                }
-                this.touchStartY = touchEndY;
+        } else if (diffY < -thresholdY) {
+            if (this.canTriggerTouchHardDrop()) {
+                this.hardDrop();
+                this.applyTouchHardDropCooldown();
             }
+            this.touchStartY = touchEndY;
         }
     }
 
     handleTouchEnd(e) {
-        e.preventDefault(); // Disable default touch behavior
-        
+        e.preventDefault();
+
         if (!this.gameRunning) return;
-        
-        // If no significant movement, it's a tap - so rotate
+
         if (!this.hasMoved && this.touchStartTime) {
             const timeDiff = Date.now() - this.touchStartTime;
             if (timeDiff < 300) {
                 this.rotatePiece();
             }
         }
-        
-        // Reset touch tracking
+
         this.touchStartX = null;
         this.touchStartY = null;
         this.touchStartTime = null;
@@ -218,7 +234,7 @@ class TetrisGame {
     handleKeyPress(e) {
         if (!this.gameRunning) return;
 
-        switch(e.key.toLowerCase()) {
+        switch (e.key.toLowerCase()) {
             case 'arrowleft':
                 e.preventDefault();
                 this.movePieceLeft();
@@ -296,11 +312,10 @@ class TetrisGame {
     }
 
     isCollidingDown() {
-        const piece = this.currentPiece;
-        const originalY = piece.y;
-        piece.moveDown();
+        const originalY = this.currentPiece.y;
+        this.currentPiece.moveDown();
         const colliding = this.isColliding();
-        piece.y = originalY;
+        this.currentPiece.y = originalY;
         return colliding;
     }
 
@@ -312,9 +327,8 @@ class TetrisGame {
         });
 
         this.clearLines();
-        this.currentPiece = this.nextPiece;
-        this.nextPiece = new Piece();
-        this.drawNextPiece();
+        this.currentPiece = this.takeNextPiece();
+        this.drawNextQueue();
 
         if (this.isColliding()) {
             this.gameOver();
@@ -325,11 +339,11 @@ class TetrisGame {
         let clearedLines = 0;
 
         for (let y = GRID_HEIGHT - 1; y >= 0; y--) {
-            if (this.grid[y].every(cell => cell !== null)) {
+            if (this.grid[y].every((cell) => cell !== null)) {
                 this.grid.splice(y, 1);
                 this.grid.unshift(Array(GRID_WIDTH).fill(null));
                 clearedLines++;
-                y++; // Check this row again
+                y++;
             }
         }
 
@@ -348,32 +362,60 @@ class TetrisGame {
         document.getElementById('level').textContent = this.level;
     }
 
-    drawNextPiece() {
-        this.nextCtx.fillStyle = '#000';
-        this.nextCtx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
+    drawNextQueue() {
+        this.nextQueueContainer.innerHTML = '';
 
-        const cells = this.nextPiece.getCells();
-        const minX = Math.min(...cells.map(([x]) => x));
-        const minY = Math.min(...cells.map(([, y]) => y));
+        if (this.previewCount === 0) {
+            const hiddenMessage = document.createElement('div');
+            hiddenMessage.className = 'next-empty';
+            hiddenMessage.textContent = 'Upcoming pieces are hidden.';
+            this.nextQueueContainer.appendChild(hiddenMessage);
+            return;
+        }
 
-        cells.forEach(([x, y]) => {
-            const drawX = (x - minX) * CELL_SIZE + 10;
-            const drawY = (y - minY) * CELL_SIZE + 10;
-            
-            this.nextCtx.fillStyle = COLORS[this.nextPiece.type];
-            this.nextCtx.fillRect(drawX, drawY, CELL_SIZE - 2, CELL_SIZE - 2);
-            this.nextCtx.strokeStyle = '#00ff88';
-            this.nextCtx.lineWidth = 1;
-            this.nextCtx.strokeRect(drawX, drawY, CELL_SIZE - 2, CELL_SIZE - 2);
+        const visiblePieces = this.nextQueue.slice(0, this.previewCount);
+        visiblePieces.forEach((piece) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = PREVIEW_CANVAS_WIDTH;
+            canvas.height = PREVIEW_CANVAS_HEIGHT;
+            canvas.className = 'preview-canvas';
+            this.nextQueueContainer.appendChild(canvas);
+            this.drawPreviewPiece(canvas, piece);
+        });
+    }
+
+    drawPreviewPiece(canvas, piece) {
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const shape = ROTATIONS[piece.type][0];
+        const xs = shape.map(([x]) => x);
+        const ys = shape.map(([, y]) => y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const shapeWidth = (maxX - minX + 1) * PREVIEW_CELL_SIZE;
+        const shapeHeight = (maxY - minY + 1) * PREVIEW_CELL_SIZE;
+        const offsetX = Math.floor((canvas.width - shapeWidth) / 2);
+        const offsetY = Math.floor((canvas.height - shapeHeight) / 2);
+
+        shape.forEach(([x, y]) => {
+            const drawX = offsetX + (x - minX) * PREVIEW_CELL_SIZE;
+            const drawY = offsetY + (y - minY) * PREVIEW_CELL_SIZE;
+            ctx.fillStyle = COLORS[piece.type];
+            ctx.fillRect(drawX, drawY, PREVIEW_CELL_SIZE - 2, PREVIEW_CELL_SIZE - 2);
+            ctx.strokeStyle = '#00ff88';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(drawX, drawY, PREVIEW_CELL_SIZE - 2, PREVIEW_CELL_SIZE - 2);
         });
     }
 
     render() {
-        // Clear canvas
         this.ctx.fillStyle = '#000';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-        // Draw grid
         this.ctx.strokeStyle = '#222';
         this.ctx.lineWidth = 0.5;
         for (let x = 0; x <= GRID_WIDTH; x++) {
@@ -389,7 +431,6 @@ class TetrisGame {
             this.ctx.stroke();
         }
 
-        // Draw placed blocks
         for (let y = 0; y < GRID_HEIGHT; y++) {
             for (let x = 0; x < GRID_WIDTH; x++) {
                 if (this.grid[y][x] !== null) {
@@ -398,18 +439,16 @@ class TetrisGame {
             }
         }
 
-        // Draw current piece
         this.currentPiece.getCells().forEach(([x, y]) => {
             if (y >= 0) {
                 this.drawCell(x, y, COLORS[this.currentPiece.type]);
             }
         });
 
-        // Draw pause overlay
         if (this.state === PAUSED) {
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-            
+
             this.ctx.fillStyle = '#00ff88';
             this.ctx.font = 'bold 40px Arial';
             this.ctx.textAlign = 'center';
@@ -417,17 +456,16 @@ class TetrisGame {
             this.ctx.fillText('PAUSED', this.canvas.width / 2, this.canvas.height / 2);
         }
 
-        // Draw game over overlay
         if (this.state === GAME_OVER) {
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-            
+
             this.ctx.fillStyle = '#ff0000';
             this.ctx.font = 'bold 40px Arial';
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this.ctx.fillText('GAME OVER', this.canvas.width / 2, this.canvas.height / 2 - 30);
-            
+
             this.ctx.fillStyle = '#fff';
             this.ctx.font = '20px Arial';
             this.ctx.fillText(`Score: ${this.score}`, this.canvas.width / 2, this.canvas.height / 2 + 30);
@@ -448,12 +486,12 @@ class TetrisGame {
         const now = Date.now();
         if (now - this.lastDropTime > this.dropSpeed) {
             this.currentPiece.moveDown();
-            
+
             if (this.isColliding()) {
                 this.currentPiece.undoMove();
                 this.placePiece();
             }
-            
+
             this.lastDropTime = now;
         }
 
@@ -470,7 +508,7 @@ class TetrisGame {
 
     togglePause() {
         if (!this.gameRunning) return;
-        
+
         if (this.state === PLAYING) {
             this.state = PAUSED;
         } else if (this.state === PAUSED) {
@@ -488,8 +526,9 @@ class TetrisGame {
 
     reset() {
         this.grid = Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill(null));
-        this.currentPiece = new Piece();
-        this.nextPiece = new Piece();
+        this.nextQueue = [];
+        this.refillQueue();
+        this.currentPiece = this.takeNextPiece();
         this.state = PLAYING;
         this.score = 0;
         this.lines = 0;
@@ -498,7 +537,8 @@ class TetrisGame {
         this.lastDropTime = Date.now();
         this.nextTouchHardDropTime = 0;
         this.gameRunning = false;
-        this.drawNextPiece();
+        this.updateDisplay();
+        this.drawNextQueue();
         this.render();
     }
 
@@ -510,8 +550,6 @@ class TetrisGame {
     }
 }
 
-// Initialize game when page loads
 window.addEventListener('DOMContentLoaded', () => {
     new TetrisGame();
 });
-

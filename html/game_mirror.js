@@ -1,4 +1,4 @@
-// Tetris Game in JavaScript
+﻿// Tetris Game in JavaScript
 
 // Constants
 const PLAYING = 'playing';
@@ -56,6 +56,12 @@ const ROTATIONS = {
     ],
 };
 
+const MIRROR_TRANSFORMS = {
+    'J': { type: 'L', rotations: [3, 2, 1, 0] },
+    'L': { type: 'J', rotations: [3, 2, 1, 0] },
+    'S': { type: 'Z', rotations: [0, 1] },
+    'Z': { type: 'S', rotations: [0, 1] },
+};
 class Piece {
     constructor(type = null) {
         const types = Object.keys(ROTATIONS);
@@ -123,6 +129,9 @@ class TetrisGame {
         this.dropSpeed = 1000; // milliseconds
         this.lastDropTime = Date.now();
         this.nextTouchHardDropTime = 0;
+        this.doubleTapThreshold = 140;
+        this.lastTapTime = 0;
+        this.singleTapTimer = null;
         this.gameRunning = false;
         
         this.setupEventListeners();
@@ -139,6 +148,12 @@ class TetrisGame {
         document.getElementById('leftBtn').addEventListener('click', () => this.movePieceLeft());
         document.getElementById('rightBtn').addEventListener('click', () => this.movePieceRight());
         document.getElementById('rotateBtn').addEventListener('click', () => this.rotatePiece());
+        ['mirrorBtnDesktop', 'mirrorBtnMobile'].forEach((buttonId) => {
+            const mirrorBtn = document.getElementById(buttonId);
+            if (mirrorBtn) {
+                mirrorBtn.addEventListener('click', () => this.mirrorCurrentPiece());
+            }
+        });
         document.getElementById('dropBtn').addEventListener('click', () => this.hardDrop());
         
         // Touch support for mobile
@@ -200,11 +215,10 @@ class TetrisGame {
         
         if (!this.gameRunning) return;
         
-        // If no significant movement, it's a tap - so rotate
         if (!this.hasMoved && this.touchStartTime) {
             const timeDiff = Date.now() - this.touchStartTime;
             if (timeDiff < 300) {
-                this.rotatePiece();
+                this.handleCanvasTap();
             }
         }
         
@@ -215,8 +229,41 @@ class TetrisGame {
         this.hasMoved = false;
     }
 
+    handleCanvasTap() {
+        const now = Date.now();
+
+        if (now - this.lastTapTime <= this.doubleTapThreshold) {
+            this.clearPendingTapAction();
+            this.mirrorCurrentPiece();
+            return;
+        }
+
+        this.lastTapTime = now;
+        this.singleTapTimer = setTimeout(() => {
+            this.singleTapTimer = null;
+            this.lastTapTime = 0;
+            if (this.gameRunning && this.state === PLAYING) {
+                this.rotatePiece();
+            }
+        }, this.doubleTapThreshold);
+    }
+
+    clearPendingTapAction() {
+        if (this.singleTapTimer) {
+            clearTimeout(this.singleTapTimer);
+            this.singleTapTimer = null;
+        }
+        this.lastTapTime = 0;
+    }
+
     handleKeyPress(e) {
         if (!this.gameRunning) return;
+
+        if (e.code === 'Space') {
+            e.preventDefault();
+            this.mirrorCurrentPiece();
+            return;
+        }
 
         switch(e.key.toLowerCase()) {
             case 'arrowleft':
@@ -271,6 +318,36 @@ class TetrisGame {
         this.render();
     }
 
+    mirrorCurrentPiece() {
+        if (this.state !== PLAYING) return;
+
+        const mirroredState = this.getMirroredPieceState(this.currentPiece.type, this.currentPiece.rotationState);
+        if (!mirroredState) return;
+
+        const originalType = this.currentPiece.type;
+        const originalRotation = this.currentPiece.rotationState;
+
+        this.currentPiece.type = mirroredState.type;
+        this.currentPiece.rotationState = mirroredState.rotationState;
+
+        if (this.isColliding()) {
+            this.currentPiece.type = originalType;
+            this.currentPiece.rotationState = originalRotation;
+            return;
+        }
+
+        this.render();
+    }
+
+    getMirroredPieceState(type, rotationState) {
+        const transform = MIRROR_TRANSFORMS[type];
+        if (!transform) return null;
+
+        return {
+            type: transform.type,
+            rotationState: transform.rotations[rotationState] ?? rotationState,
+        };
+    }
     hardDrop() {
         if (this.state !== PLAYING) return;
         while (!this.isCollidingDown()) {
@@ -481,12 +558,14 @@ class TetrisGame {
     }
 
     gameOver() {
+        this.clearPendingTapAction();
         this.state = GAME_OVER;
         this.gameRunning = false;
         this.render();
     }
 
     reset() {
+        this.clearPendingTapAction();
         this.grid = Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill(null));
         this.currentPiece = new Piece();
         this.nextPiece = new Piece();
@@ -497,6 +576,9 @@ class TetrisGame {
         this.dropSpeed = 1000;
         this.lastDropTime = Date.now();
         this.nextTouchHardDropTime = 0;
+        this.doubleTapThreshold = 140;
+        this.lastTapTime = 0;
+        this.singleTapTimer = null;
         this.gameRunning = false;
         this.drawNextPiece();
         this.render();
@@ -514,4 +596,6 @@ class TetrisGame {
 window.addEventListener('DOMContentLoaded', () => {
     new TetrisGame();
 });
+
+
 

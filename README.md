@@ -506,3 +506,22 @@ pip install pygame==2.5.2
 ---
 
 **Ευχαρίστω που παίζετε το Tetris!**
+
+
+## Additions, Requested Features
+
+-To keep top score player name and score, moves, deleted lines, etc.
+-top make the autoplay save the games score and moves, deleted lines etc.
+
+-run autoplay many times (100-10000) and record, plot the distribution.
+
+-optimize autoplay strategies hypothesize all the combinations of next n pieces and find the best current movement that works better in a. the worst case b. in the majority cases.
+>partial goal is to determine the maximum n that can be practically analysed with current computing power.
+
+-optimize autoplay strategies that actually see the next m pieces and hypothesize next n pieces after the m and find the best current movement that works better in a. the worst case b. in the majority cases.
+>partial goal is to determine the maximum n,m that can be practically analysed with current computing power.
+
+
+-run autoplay for all the previous strategies (x-times 100-10000), record, plot the distributions and compare.
+>partial goal is to determine the "improvement" effect of the strategy in relation with the n and/or m seeing depth. That can be generalized as a conclusion that could be applied to other random decision strategies.
+
